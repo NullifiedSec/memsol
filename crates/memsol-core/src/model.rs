@@ -30,6 +30,7 @@ pub struct MemorySnapshot {
 
 impl MemorySnapshot {
     #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn available_ratio(self) -> f64 {
         if self.total_kib == 0 {
             return 0.0;
