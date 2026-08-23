@@ -111,7 +111,7 @@ impl ContextLearner {
         }
     }
 
-    pub fn observe_event(&mut self, event: ContextEvent, at: Duration, context: AttentionContext) {
+    pub fn observe_event(&mut self, event: &ContextEvent, at: Duration, context: AttentionContext) {
         self.prune(at);
         self.pending.push_back(PendingEvent {
             key: event.key(),
@@ -227,7 +227,11 @@ impl ContextLearner {
             let keys = contextual_keys(&pending.key, &prediction_context);
             for (specificity, key) in keys.into_iter().enumerate() {
                 let prefix = format!("{key}{KEY_SEPARATOR}");
-                let specificity_weight = 1.0 + specificity as f64;
+                let specificity_weight = match specificity {
+                    0 => 1.0,
+                    1 => 2.0,
+                    _ => 3.0,
+                };
                 for (stored_key, stat) in stats {
                     let Some(target) = stored_key.strip_prefix(&prefix) else {
                         continue;
@@ -342,25 +346,19 @@ mod tests {
         let chat = context("chat", "discord");
 
         for offset in [0, 100, 200] {
-            learner.observe_event(
-                ContextEvent {
-                    kind: "notification".to_owned(),
-                    source: Some("discord".to_owned()),
-                },
-                Duration::from_secs(offset),
-                dev.clone(),
-            );
+            let event = ContextEvent {
+                kind: "notification".to_owned(),
+                source: Some("discord".to_owned()),
+            };
+            learner.observe_event(&event, Duration::from_secs(offset), dev.clone());
             learner.observe_attention(&chat, Duration::from_secs(offset + 2));
         }
 
-        learner.observe_event(
-            ContextEvent {
-                kind: "notification".to_owned(),
-                source: Some("discord".to_owned()),
-            },
-            Duration::from_secs(300),
-            dev.clone(),
-        );
+        let event = ContextEvent {
+            kind: "notification".to_owned(),
+            source: Some("discord".to_owned()),
+        };
+        learner.observe_event(&event, Duration::from_secs(300), dev.clone());
 
         let predictions = learner.predict_workspaces(&dev, Duration::from_secs(301), 3);
         assert_eq!(predictions[0].target, "chat");
@@ -376,24 +374,14 @@ mod tests {
         );
         let dev = context("dev", "zed");
         let web = context("web", "firefox");
+        let event = ContextEvent {
+            kind: "build_finished".to_owned(),
+            source: None,
+        };
 
-        learner.observe_event(
-            ContextEvent {
-                kind: "build_finished".to_owned(),
-                source: None,
-            },
-            Duration::from_secs(0),
-            dev.clone(),
-        );
+        learner.observe_event(&event, Duration::from_secs(0), dev.clone());
         learner.observe_attention(&web, Duration::from_secs(1));
-        learner.observe_event(
-            ContextEvent {
-                kind: "build_finished".to_owned(),
-                source: None,
-            },
-            Duration::from_secs(100),
-            dev.clone(),
-        );
+        learner.observe_event(&event, Duration::from_secs(100), dev.clone());
 
         assert!(
             !learner
@@ -410,14 +398,11 @@ mod tests {
     #[test]
     fn persistence_does_not_restore_pending_events() {
         let mut learner = ContextLearner::default();
-        learner.observe_event(
-            ContextEvent {
-                kind: "notification".to_owned(),
-                source: Some("discord".to_owned()),
-            },
-            Duration::from_secs(10),
-            context("dev", "zed"),
-        );
+        let event = ContextEvent {
+            kind: "notification".to_owned(),
+            source: Some("discord".to_owned()),
+        };
+        learner.observe_event(&event, Duration::from_secs(10), context("dev", "zed"));
         learner.observe_attention(&context("chat", "discord"), Duration::from_secs(12));
 
         let mut json = Vec::new();
