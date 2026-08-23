@@ -55,7 +55,7 @@ impl AttentionGraph {
 
     #[must_use]
     pub fn focused_count(&self) -> usize {
-        usize::from(self.focused_window.is_some())
+        if self.focused_window.is_some() { 1 } else { 0 }
     }
 
     #[must_use]
@@ -74,12 +74,7 @@ impl AttentionGraph {
             .count()
     }
 
-    pub(crate) fn upsert_workspace(
-        &mut self,
-        id: i64,
-        name: String,
-        monitor: Option<String>,
-    ) {
+    pub(crate) fn upsert_workspace(&mut self, id: i64, name: String, monitor: Option<String>) {
         let entry = self
             .workspaces
             .entry(name.clone())
@@ -99,7 +94,8 @@ impl AttentionGraph {
 
     pub(crate) fn remove_workspace(&mut self, name: &str) {
         self.workspaces.remove(name);
-        self.active_workspaces.retain(|_, workspace| workspace != name);
+        self.active_workspaces
+            .retain(|_, workspace| workspace != name);
         self.refresh();
     }
 
@@ -238,10 +234,7 @@ mod tests {
         graph.upsert_window(window("0x1", "dev"));
         graph.set_active_workspace("DP-1".to_owned(), "dev".to_owned());
 
-        assert_eq!(
-            graph.windows()["0x1"].attention,
-            AttentionState::Visible
-        );
+        assert_eq!(graph.windows()["0x1"].attention, AttentionState::Visible);
     }
 
     #[test]
@@ -252,9 +245,6 @@ mod tests {
         graph.set_active_workspace("DP-1".to_owned(), "dev".to_owned());
         graph.set_focused_window(Some("0x1".to_owned()));
 
-        assert_eq!(
-            graph.windows()["0x1"].attention,
-            AttentionState::Focused
-        );
+        assert_eq!(graph.windows()["0x1"].attention, AttentionState::Focused);
     }
 }
