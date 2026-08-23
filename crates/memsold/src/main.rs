@@ -214,7 +214,7 @@ fn run_context_event_listener(
             .map(|graph| attention_context(&graph, None))
             .unwrap_or_default();
         if let Ok(mut model) = learner.lock() {
-            model.observe_event(event, wall_clock_duration(), context);
+            model.observe_event(&event, wall_clock_duration(), context);
         }
     }
 }
