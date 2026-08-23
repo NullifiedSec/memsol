@@ -265,9 +265,11 @@ impl ContextLearner {
     }
 
     fn prune(&mut self, at: Duration) {
-        while self.pending.front().is_some_and(|event| {
-            at.saturating_sub(event.at).as_secs_f64() > self.event_window_secs
-        }) {
+        while self
+            .pending
+            .front()
+            .is_some_and(|event| at.saturating_sub(event.at).as_secs_f64() > self.event_window_secs)
+        {
             self.pending.pop_front();
         }
     }
@@ -278,7 +280,9 @@ fn contextual_keys(event: &str, context: &AttentionContext) -> Vec<String> {
     if let Some(workspace) = context.workspace.as_deref() {
         keys.push(format!("{event}{KEY_SEPARATOR}{workspace}{KEY_SEPARATOR}*"));
         if let Some(app) = context.app_class.as_deref() {
-            keys.push(format!("{event}{KEY_SEPARATOR}{workspace}{KEY_SEPARATOR}{app}"));
+            keys.push(format!(
+                "{event}{KEY_SEPARATOR}{workspace}{KEY_SEPARATOR}{app}"
+            ));
         }
     }
     keys
@@ -391,12 +395,16 @@ mod tests {
             dev.clone(),
         );
 
-        assert!(!learner
-            .predict_workspaces(&dev, Duration::from_secs(110), 1)
-            .is_empty());
-        assert!(learner
-            .predict_workspaces(&dev, Duration::from_secs(230), 1)
-            .is_empty());
+        assert!(
+            !learner
+                .predict_workspaces(&dev, Duration::from_secs(110), 1)
+                .is_empty()
+        );
+        assert!(
+            learner
+                .predict_workspaces(&dev, Duration::from_secs(230), 1)
+                .is_empty()
+        );
     }
 
     #[test]
@@ -416,8 +424,10 @@ mod tests {
         learner.save_json(&mut json).expect("save context learner");
         let restored = ContextLearner::load_json(json.as_slice()).expect("load context learner");
 
-        assert!(restored
-            .predict_workspaces(&context("dev", "zed"), Duration::from_secs(12), 1)
-            .is_empty());
+        assert!(
+            restored
+                .predict_workspaces(&context("dev", "zed"), Duration::from_secs(12), 1)
+                .is_empty()
+        );
     }
 }
