@@ -178,9 +178,8 @@ fn send_event(args: Vec<String>) -> io::Result<()> {
         ));
     }
 
-    let path = runtime_event_socket_path().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is unavailable")
-    })?;
+    let path = runtime_event_socket_path()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is unavailable"))?;
     let event = ContextEvent {
         kind: kind.clone(),
         source,
