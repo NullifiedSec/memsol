@@ -20,7 +20,10 @@ fn main() -> io::Result<()> {
         "status" => status(),
         "attention" | "hypr" => attention(),
         "learn" | "learning" => learning(),
-        "event" => send_event(args.collect()),
+        "event" => {
+            let event_args: Vec<_> = args.collect();
+            send_event(&event_args)
+        }
         other => {
             eprintln!(
                 "unknown command: {other}\nusage: memsolctl [status|attention|learn|event <kind> [source]]"
@@ -163,7 +166,7 @@ fn learning() -> io::Result<()> {
     Ok(())
 }
 
-fn send_event(args: Vec<String>) -> io::Result<()> {
+fn send_event(args: &[String]) -> io::Result<()> {
     let Some(kind) = args.first() else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
