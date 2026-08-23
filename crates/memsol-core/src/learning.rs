@@ -129,7 +129,12 @@ impl AttentionLearner {
     }
 
     #[must_use]
-    pub fn predict_next_workspaces(&self, current: &str, at: Duration, limit: usize) -> Vec<Prediction> {
+    pub fn predict_next_workspaces(
+        &self,
+        current: &str,
+        at: Duration,
+        limit: usize,
+    ) -> Vec<Prediction> {
         predict_transitions(
             &self.workspace_transitions,
             current,
@@ -197,7 +202,11 @@ impl AttentionLearner {
 
     fn observe_workspace(&mut self, workspace: String, at: Duration) {
         let now_secs = at.as_secs_f64();
-        if self.current_workspace.as_ref().is_some_and(|active| active.name == workspace) {
+        if self
+            .current_workspace
+            .as_ref()
+            .is_some_and(|active| active.name == workspace)
+        {
             return;
         }
 
@@ -232,17 +241,16 @@ impl AttentionLearner {
 
     fn observe_app(&mut self, app_class: String, at: Duration) {
         let now_secs = at.as_secs_f64();
-        if self.current_app.as_ref().is_some_and(|active| active.name == app_class) {
+        if self
+            .current_app
+            .as_ref()
+            .is_some_and(|active| active.name == app_class)
+        {
             return;
         }
 
         if let Some(previous) = self.current_app.take() {
-            add_dwell(
-                &mut self.app_dwell_secs,
-                &previous,
-                at,
-                self.half_life_secs,
-            );
+            add_dwell(&mut self.app_dwell_secs, &previous, at, self.half_life_secs);
             add_transition(
                 &mut self.app_transitions,
                 &previous.name,
@@ -292,13 +300,7 @@ fn add_dwell(
 ) {
     let dwell = at.saturating_sub(active.started_at).as_secs_f64();
     if dwell > 0.0 {
-        add_stat(
-            stats,
-            &active.name,
-            at.as_secs_f64(),
-            half_life_secs,
-            dwell,
-        );
+        add_stat(stats, &active.name, at.as_secs_f64(), half_life_secs, dwell);
     }
 }
 
