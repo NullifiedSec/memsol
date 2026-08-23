@@ -155,13 +155,13 @@ pub fn snapshot_attention() -> io::Result<AttentionGraph> {
         let monitor = (!workspace.monitor.is_empty())
             .then_some(workspace.monitor)
             .or_else(|| monitor_names.get(&workspace.monitor_id).cloned());
-        graph.upsert_workspace(workspace.id, workspace.name, monitor);
+        graph.upsert_workspace(workspace.id, &workspace.name, monitor);
     }
 
     for monitor in monitors {
         graph.upsert_workspace(
             monitor.active_workspace.id,
-            monitor.active_workspace.name.clone(),
+            &monitor.active_workspace.name,
             Some(monitor.name.clone()),
         );
         graph.set_active_workspace(monitor.name, monitor.active_workspace.name);
@@ -170,7 +170,7 @@ pub fn snapshot_attention() -> io::Result<AttentionGraph> {
     for client in clients {
         graph.upsert_workspace(
             client.workspace.id,
-            client.workspace.name.clone(),
+            &client.workspace.name,
             monitor_names.get(&client.monitor).cloned(),
         );
         graph.upsert_window(WindowState {
@@ -200,7 +200,7 @@ pub fn apply_event(graph: &mut AttentionGraph, event: HyprlandEvent) {
     match event {
         HyprlandEvent::WorkspaceChanged { id, name }
         | HyprlandEvent::WorkspaceCreated { id, name } => {
-            graph.upsert_workspace(id, name, None);
+            graph.upsert_workspace(id, &name, None);
         }
         HyprlandEvent::FocusedMonitor { monitor, workspace } => {
             graph.set_active_workspace(monitor, workspace);
@@ -227,7 +227,7 @@ pub fn apply_event(graph: &mut AttentionGraph, event: HyprlandEvent) {
         HyprlandEvent::WindowClosed { address } => graph.remove_window(&address),
         HyprlandEvent::WindowMoved { address, workspace } => graph.move_window(&address, workspace),
         HyprlandEvent::WorkspaceDestroyed { id: _, name } => graph.remove_workspace(&name),
-        HyprlandEvent::WorkspaceRenamed { id, name } => graph.rename_workspace(id, name),
+        HyprlandEvent::WorkspaceRenamed { id, name } => graph.rename_workspace(id, &name),
         HyprlandEvent::WindowTitle { address, title } => graph.set_window_title(&address, title),
         HyprlandEvent::Fullscreen(fullscreen) => graph.set_fullscreen(fullscreen),
     }
