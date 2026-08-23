@@ -28,8 +28,18 @@ mod tests {
 
     fn psi(some: f64, full: f64) -> PsiMemory {
         PsiMemory {
-            some: PsiLine { avg10: some, avg60: some, avg300: some, total_us: 0 },
-            full: PsiLine { avg10: full, avg60: full, avg300: full, total_us: 0 },
+            some: PsiLine {
+                avg10: some,
+                avg60: some,
+                avg300: some,
+                total_us: 0,
+            },
+            full: PsiLine {
+                avg10: full,
+                avg60: full,
+                avg300: full,
+                total_us: 0,
+            },
         }
     }
 
@@ -45,11 +55,17 @@ mod tests {
 
     #[test]
     fn normal_when_capacity_and_psi_are_healthy() {
-        assert_eq!(classify_pressure(memory(0.5), psi(0.0, 0.0)), PressureLevel::Normal);
+        assert_eq!(
+            classify_pressure(memory(0.5), psi(0.0, 0.0)),
+            PressureLevel::Normal
+        );
     }
 
     #[test]
     fn critical_when_full_stalls_are_sustained() {
-        assert_eq!(classify_pressure(memory(0.2), psi(8.0, 5.0)), PressureLevel::Critical);
+        assert_eq!(
+            classify_pressure(memory(0.2), psi(8.0, 5.0)),
+            PressureLevel::Critical
+        );
     }
 }
