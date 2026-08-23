@@ -126,37 +126,39 @@ fn start_attention_observer(
     let graph = Arc::new(Mutex::new(graph));
     let event_graph = Arc::clone(&graph);
 
-    thread::spawn(move || loop {
-        match stream.next_event() {
-            Ok(Some(event)) => {
-                let now = wall_clock_duration();
-                if let Ok(mut graph) = event_graph.lock() {
-                    apply_event(&mut graph, event.clone());
-                    if should_learn_from(&event) {
-                        let workspace_hint = workspace_hint(&event);
-                        if let Ok(mut model) = learner.lock() {
-                            model.observe(observation_from_graph(
-                                &graph,
-                                now,
-                                workspace_hint.clone(),
-                            ));
-                        }
-                        if let Ok(mut model) = contextual.lock() {
-                            model.observe_attention(
-                                &attention_context(&graph, workspace_hint),
-                                now,
-                            );
+    thread::spawn(move || {
+        loop {
+            match stream.next_event() {
+                Ok(Some(event)) => {
+                    let now = wall_clock_duration();
+                    if let Ok(mut graph) = event_graph.lock() {
+                        apply_event(&mut graph, event.clone());
+                        if should_learn_from(&event) {
+                            let workspace_hint = workspace_hint(&event);
+                            if let Ok(mut model) = learner.lock() {
+                                model.observe(observation_from_graph(
+                                    &graph,
+                                    now,
+                                    workspace_hint.clone(),
+                                ));
+                            }
+                            if let Ok(mut model) = contextual.lock() {
+                                model.observe_attention(
+                                    &attention_context(&graph, workspace_hint),
+                                    now,
+                                );
+                            }
                         }
                     }
                 }
-            }
-            Ok(None) => {
-                eprintln!("Hyprland event socket closed");
-                return;
-            }
-            Err(error) => {
-                eprintln!("Hyprland event observer failed: {error}");
-                return;
+                Ok(None) => {
+                    eprintln!("Hyprland event socket closed");
+                    return;
+                }
+                Err(error) => {
+                    eprintln!("Hyprland event observer failed: {error}");
+                    return;
+                }
             }
         }
     });
@@ -364,10 +366,7 @@ fn load_context_learner(path: Option<&Path>) -> ContextLearner {
     })
 }
 
-fn load_state<T>(
-    path: Option<&Path>,
-    decode: impl FnOnce(File) -> io::Result<T>,
-) -> io::Result<T>
+fn load_state<T>(path: Option<&Path>, decode: impl FnOnce(File) -> io::Result<T>) -> io::Result<T>
 where
     T: Default,
 {
