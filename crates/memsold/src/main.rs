@@ -43,7 +43,12 @@ fn main() -> io::Result<()> {
         let learning_summary = attention
             .lock()
             .ok()
-            .and_then(|graph| learner.lock().ok().map(|model| learning_summary(&graph, &model, now)))
+            .and_then(|graph| {
+                learner
+                    .lock()
+                    .ok()
+                    .map(|model| learning_summary(&graph, &model, now))
+            })
             .unwrap_or_else(|| "learning=unavailable".to_owned());
 
         println!(
@@ -71,9 +76,7 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn start_attention_observer(
-    learner: Arc<Mutex<AttentionLearner>>,
-) -> Arc<Mutex<AttentionGraph>> {
+fn start_attention_observer(learner: Arc<Mutex<AttentionLearner>>) -> Arc<Mutex<AttentionGraph>> {
     let mut stream = match HyprlandEventStream::connect() {
         Ok(stream) => stream,
         Err(error) => {
@@ -104,28 +107,30 @@ fn start_attention_observer(
     let graph = Arc::new(Mutex::new(graph));
     let event_graph = Arc::clone(&graph);
 
-    thread::spawn(move || loop {
-        match stream.next_event() {
-            Ok(Some(event)) => {
-                let now = wall_clock_duration();
-                if let Ok(mut graph) = event_graph.lock() {
-                    apply_event(&mut graph, event.clone());
-                    if should_learn_from(&event) {
-                        let workspace_hint = workspace_hint(&event);
-                        let observation = observation_from_graph(&graph, now, workspace_hint);
-                        if let Ok(mut model) = learner.lock() {
-                            model.observe(observation);
+    thread::spawn(move || {
+        loop {
+            match stream.next_event() {
+                Ok(Some(event)) => {
+                    let now = wall_clock_duration();
+                    if let Ok(mut graph) = event_graph.lock() {
+                        apply_event(&mut graph, event.clone());
+                        if should_learn_from(&event) {
+                            let workspace_hint = workspace_hint(&event);
+                            let observation = observation_from_graph(&graph, now, workspace_hint);
+                            if let Ok(mut model) = learner.lock() {
+                                model.observe(observation);
+                            }
                         }
                     }
                 }
-            }
-            Ok(None) => {
-                eprintln!("Hyprland event socket closed");
-                return;
-            }
-            Err(error) => {
-                eprintln!("Hyprland event observer failed: {error}");
-                return;
+                Ok(None) => {
+                    eprintln!("Hyprland event socket closed");
+                    return;
+                }
+                Err(error) => {
+                    eprintln!("Hyprland event observer failed: {error}");
+                    return;
+                }
             }
         }
     });
@@ -180,7 +185,13 @@ fn learning_summary(graph: &AttentionGraph, learner: &AttentionLearner, now: Dur
         .next()
         .map_or_else(
             || "none".to_owned(),
-            |prediction| format!("{}:{:.0}%", prediction.target, prediction.probability * 100.0),
+            |prediction| {
+                format!(
+                    "{}:{:.0}%",
+                    prediction.target,
+                    prediction.probability * 100.0
+                )
+            },
         );
 
     let next_app = learner
@@ -189,7 +200,13 @@ fn learning_summary(graph: &AttentionGraph, learner: &AttentionLearner, now: Dur
         .next()
         .map_or_else(
             || "none".to_owned(),
-            |prediction| format!("{}:{:.0}%", prediction.target, prediction.probability * 100.0),
+            |prediction| {
+                format!(
+                    "{}:{:.0}%",
+                    prediction.target,
+                    prediction.probability * 100.0
+                )
+            },
         );
 
     format!(
@@ -227,7 +244,10 @@ fn load_learner(path: Option<&PathBuf>) -> AttentionLearner {
                 model
             }
             Err(error) => {
-                eprintln!("ignoring invalid learning state {}: {error}", path.display());
+                eprintln!(
+                    "ignoring invalid learning state {}: {error}",
+                    path.display()
+                );
                 AttentionLearner::default()
             }
         },
