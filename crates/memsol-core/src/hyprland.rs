@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     env,
-    fs::File,
     io::{self, BufRead, BufReader, Read, Write},
     os::unix::net::UnixStream,
     path::PathBuf,
@@ -106,9 +105,9 @@ impl HyprlandEventStream {
 
 /// Reads one consistent-enough startup snapshot from Hyprland.
 ///
-/// Live events should be attached immediately after this snapshot. A later
-/// reconciliation pass can repair the narrow race between snapshot and event
-/// subscription without resorting to high-frequency polling.
+/// Long-running observers should connect to the event socket before taking this
+/// snapshot, then consume the queued events afterward. This closes the normal
+/// snapshot-to-subscription race without high-frequency polling.
 ///
 /// # Errors
 ///
