@@ -1,6 +1,9 @@
 use std::{thread, time::Duration};
 
-use memsol_core::{classify_pressure, telemetry::{read_meminfo, read_memory_psi}};
+use memsol_core::{
+    classify_pressure,
+    telemetry::{read_meminfo, read_memory_psi},
+};
 
 fn main() -> std::io::Result<()> {
     println!("memsold observer starting; no reclaim or freeze actions are enabled");
