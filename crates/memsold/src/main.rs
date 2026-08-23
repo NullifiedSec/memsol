@@ -33,7 +33,9 @@ fn main() -> std::io::Result<()> {
             psi.some.avg10,
             psi.full.avg10,
             memory.swap_used_kib() / 1024,
-            attention_summary.as_deref().unwrap_or("hyprland=unavailable"),
+            attention_summary
+                .as_deref()
+                .unwrap_or("hyprland=unavailable"),
         );
 
         thread::sleep(Duration::from_secs(5));
@@ -67,20 +69,22 @@ fn start_attention_observer() -> Arc<Mutex<AttentionGraph>> {
     let graph = Arc::new(Mutex::new(graph));
     let event_graph = Arc::clone(&graph);
 
-    thread::spawn(move || loop {
-        match stream.next_event() {
-            Ok(Some(event)) => {
-                if let Ok(mut graph) = event_graph.lock() {
-                    apply_event(&mut graph, event);
+    thread::spawn(move || {
+        loop {
+            match stream.next_event() {
+                Ok(Some(event)) => {
+                    if let Ok(mut graph) = event_graph.lock() {
+                        apply_event(&mut graph, event);
+                    }
                 }
-            }
-            Ok(None) => {
-                eprintln!("Hyprland event socket closed");
-                return;
-            }
-            Err(error) => {
-                eprintln!("Hyprland event observer failed: {error}");
-                return;
+                Ok(None) => {
+                    eprintln!("Hyprland event socket closed");
+                    return;
+                }
+                Err(error) => {
+                    eprintln!("Hyprland event observer failed: {error}");
+                    return;
+                }
             }
         }
     });
