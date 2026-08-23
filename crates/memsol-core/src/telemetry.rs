@@ -37,9 +37,7 @@ pub fn parse_memory_psi(raw: &str) -> Option<PsiMemory> {
 }
 
 fn parse_psi_fields<'a>(fields: impl Iterator<Item = &'a str>) -> Option<PsiLine> {
-    let values: HashMap<&str, &str> = fields
-        .filter_map(|field| field.split_once('='))
-        .collect();
+    let values: HashMap<&str, &str> = fields.filter_map(|field| field.split_once('=')).collect();
 
     Some(PsiLine {
         avg10: values.get("avg10")?.parse().ok()?,
