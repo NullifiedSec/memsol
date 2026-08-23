@@ -6,8 +6,8 @@ use std::{
     path::PathBuf,
 };
 
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 
 use crate::attention::{AttentionGraph, AttentionState, WindowState};
 
@@ -25,9 +25,8 @@ impl HyprlandPaths {
     /// Returns [`io::ErrorKind::NotFound`] when the required Hyprland session
     /// environment variables are absent.
     pub fn discover() -> io::Result<Self> {
-        let runtime_dir = env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| {
-            io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is not set")
-        })?;
+        let runtime_dir = env::var_os("XDG_RUNTIME_DIR")
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is not set"))?;
         let signature = env::var_os("HYPRLAND_INSTANCE_SIGNATURE").ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -45,21 +44,46 @@ impl HyprlandPaths {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HyprlandEvent {
-    WorkspaceChanged { id: i64, name: String },
-    FocusedMonitor { monitor: String, workspace: String },
-    ActiveWindow { address: Option<String> },
+    WorkspaceChanged {
+        id: i64,
+        name: String,
+    },
+    FocusedMonitor {
+        monitor: String,
+        workspace: String,
+    },
+    ActiveWindow {
+        address: Option<String>,
+    },
     WindowOpened {
         address: String,
         workspace: String,
         class: String,
         title: String,
     },
-    WindowClosed { address: String },
-    WindowMoved { address: String, workspace: String },
-    WorkspaceCreated { id: i64, name: String },
-    WorkspaceDestroyed { id: i64, name: String },
-    WorkspaceRenamed { id: i64, name: String },
-    WindowTitle { address: String, title: String },
+    WindowClosed {
+        address: String,
+    },
+    WindowMoved {
+        address: String,
+        workspace: String,
+    },
+    WorkspaceCreated {
+        id: i64,
+        name: String,
+    },
+    WorkspaceDestroyed {
+        id: i64,
+        name: String,
+    },
+    WorkspaceRenamed {
+        id: i64,
+        name: String,
+    },
+    WindowTitle {
+        address: String,
+        title: String,
+    },
     Fullscreen(bool),
 }
 
@@ -308,7 +332,8 @@ fn request_json<T: DeserializeOwned>(paths: &HyprlandPaths, command: &str) -> io
 
     let mut response = String::new();
     stream.read_to_string(&mut response)?;
-    serde_json::from_str(&response).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    serde_json::from_str(&response)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 #[derive(Debug, Deserialize)]
