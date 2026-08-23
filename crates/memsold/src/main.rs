@@ -2,15 +2,17 @@ use std::{
     env,
     fs::{self, File},
     io,
-    path::PathBuf,
+    os::unix::{fs::PermissionsExt, net::UnixDatagram},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use memsol_core::{
-    AttentionGraph, AttentionLearner, AttentionObservation, HyprlandEvent, HyprlandEventStream,
-    apply_event, classify_pressure, snapshot_attention,
+    AttentionContext, AttentionGraph, AttentionLearner, AttentionObservation, ContextEvent,
+    ContextLearner, HyprlandEvent, HyprlandEventStream, apply_event, classify_pressure,
+    snapshot_attention,
     telemetry::{read_meminfo, read_memory_psi},
 };
 
@@ -19,9 +21,12 @@ const SAVE_INTERVAL: Duration = Duration::from_secs(30);
 fn main() -> io::Result<()> {
     println!("memsold observer starting; no reclaim or freeze actions are enabled");
 
-    let learner_path = learning_state_path();
-    let learner = Arc::new(Mutex::new(load_learner(learner_path.as_ref())));
-    let attention = start_attention_observer(Arc::clone(&learner));
+    let learner_path = state_path("learning.json");
+    let context_path = state_path("context-learning.json");
+    let learner = Arc::new(Mutex::new(load_attention_learner(learner_path.as_deref())));
+    let contextual = Arc::new(Mutex::new(load_context_learner(context_path.as_deref())));
+    let attention = start_attention_observer(Arc::clone(&learner), Arc::clone(&contextual));
+    start_context_event_listener(Arc::clone(&attention), Arc::clone(&contextual));
     let mut last_save = Instant::now();
 
     loop {
@@ -44,10 +49,12 @@ fn main() -> io::Result<()> {
             .lock()
             .ok()
             .and_then(|graph| {
-                learner
-                    .lock()
-                    .ok()
-                    .map(|model| learning_summary(&graph, &model, now))
+                learner.lock().ok().map(|model| {
+                    contextual.lock().map_or_else(
+                        |_| learning_summary(&graph, &model, now),
+                        |contextual| combined_learning_summary(&graph, &model, &contextual, now),
+                    )
+                })
             })
             .unwrap_or_else(|| "learning=unavailable".to_owned());
 
@@ -64,9 +71,14 @@ fn main() -> io::Result<()> {
         );
 
         if last_save.elapsed() >= SAVE_INTERVAL {
-            if let (Some(path), Ok(model)) = (learner_path.as_ref(), learner.lock()) {
-                if let Err(error) = save_learner(path, &model) {
-                    eprintln!("failed to persist learning state: {error}");
+            if let (Some(path), Ok(model)) = (learner_path.as_deref(), learner.lock()) {
+                if let Err(error) = save_attention_learner(path, &model) {
+                    eprintln!("failed to persist attention learning state: {error}");
+                }
+            }
+            if let (Some(path), Ok(model)) = (context_path.as_deref(), contextual.lock()) {
+                if let Err(error) = save_context_learner(path, &model) {
+                    eprintln!("failed to persist contextual learning state: {error}");
                 }
             }
             last_save = Instant::now();
@@ -76,7 +88,10 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn start_attention_observer(learner: Arc<Mutex<AttentionLearner>>) -> Arc<Mutex<AttentionGraph>> {
+fn start_attention_observer(
+    learner: Arc<Mutex<AttentionLearner>>,
+    contextual: Arc<Mutex<ContextLearner>>,
+) -> Arc<Mutex<AttentionGraph>> {
     let mut stream = match HyprlandEventStream::connect() {
         Ok(stream) => stream,
         Err(error) => {
@@ -100,42 +115,106 @@ fn start_attention_observer(learner: Arc<Mutex<AttentionLearner>>) -> Arc<Mutex<
         }
     };
 
+    let now = wall_clock_duration();
     if let Ok(mut model) = learner.lock() {
-        model.observe(observation_from_graph(&graph, wall_clock_duration(), None));
+        model.observe(observation_from_graph(&graph, now, None));
+    }
+    if let Ok(mut model) = contextual.lock() {
+        model.observe_attention(&attention_context(&graph, None), now);
     }
 
     let graph = Arc::new(Mutex::new(graph));
     let event_graph = Arc::clone(&graph);
 
-    thread::spawn(move || {
-        loop {
-            match stream.next_event() {
-                Ok(Some(event)) => {
-                    let now = wall_clock_duration();
-                    if let Ok(mut graph) = event_graph.lock() {
-                        apply_event(&mut graph, event.clone());
-                        if should_learn_from(&event) {
-                            let workspace_hint = workspace_hint(&event);
-                            let observation = observation_from_graph(&graph, now, workspace_hint);
-                            if let Ok(mut model) = learner.lock() {
-                                model.observe(observation);
-                            }
+    thread::spawn(move || loop {
+        match stream.next_event() {
+            Ok(Some(event)) => {
+                let now = wall_clock_duration();
+                if let Ok(mut graph) = event_graph.lock() {
+                    apply_event(&mut graph, event.clone());
+                    if should_learn_from(&event) {
+                        let workspace_hint = workspace_hint(&event);
+                        if let Ok(mut model) = learner.lock() {
+                            model.observe(observation_from_graph(
+                                &graph,
+                                now,
+                                workspace_hint.clone(),
+                            ));
+                        }
+                        if let Ok(mut model) = contextual.lock() {
+                            model.observe_attention(
+                                &attention_context(&graph, workspace_hint),
+                                now,
+                            );
                         }
                     }
                 }
-                Ok(None) => {
-                    eprintln!("Hyprland event socket closed");
-                    return;
-                }
-                Err(error) => {
-                    eprintln!("Hyprland event observer failed: {error}");
-                    return;
-                }
+            }
+            Ok(None) => {
+                eprintln!("Hyprland event socket closed");
+                return;
+            }
+            Err(error) => {
+                eprintln!("Hyprland event observer failed: {error}");
+                return;
             }
         }
     });
 
     graph
+}
+
+fn start_context_event_listener(
+    attention: Arc<Mutex<AttentionGraph>>,
+    learner: Arc<Mutex<ContextLearner>>,
+) {
+    let Some(path) = runtime_event_socket_path() else {
+        eprintln!("context event socket disabled: XDG_RUNTIME_DIR unavailable");
+        return;
+    };
+
+    thread::spawn(move || {
+        if let Err(error) = run_context_event_listener(&path, &attention, &learner) {
+            eprintln!("context event listener stopped: {error}");
+        }
+    });
+}
+
+fn run_context_event_listener(
+    path: &Path,
+    attention: &Arc<Mutex<AttentionGraph>>,
+    learner: &Arc<Mutex<ContextLearner>>,
+) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+
+    let socket = UnixDatagram::bind(path)?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    println!("context event socket listening at {}", path.display());
+
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let size = socket.recv(&mut buffer)?;
+        let event: ContextEvent = match serde_json::from_slice(&buffer[..size]) {
+            Ok(event) => event,
+            Err(error) => {
+                eprintln!("ignoring invalid context event: {error}");
+                continue;
+            }
+        };
+
+        let context = attention
+            .lock()
+            .map(|graph| attention_context(&graph, None))
+            .unwrap_or_default();
+        if let Ok(mut model) = learner.lock() {
+            model.observe_event(event, wall_clock_duration(), context);
+        }
+    }
 }
 
 fn should_learn_from(event: &HyprlandEvent) -> bool {
@@ -155,20 +234,54 @@ fn workspace_hint(event: &HyprlandEvent) -> Option<String> {
     }
 }
 
+fn attention_context(graph: &AttentionGraph, workspace_hint: Option<String>) -> AttentionContext {
+    let focused = graph
+        .focused_window()
+        .and_then(|address| graph.windows().get(address));
+
+    AttentionContext {
+        workspace: workspace_hint.or_else(|| focused.map(|window| window.workspace.clone())),
+        app_class: focused.map(|window| window.class.clone()),
+    }
+}
+
 fn observation_from_graph(
     graph: &AttentionGraph,
     at: Duration,
     workspace_hint: Option<String>,
 ) -> AttentionObservation {
-    let focused = graph
-        .focused_window()
-        .and_then(|address| graph.windows().get(address));
-
+    let context = attention_context(graph, workspace_hint);
     AttentionObservation {
         at,
-        workspace: workspace_hint.or_else(|| focused.map(|window| window.workspace.clone())),
-        app_class: focused.map(|window| window.class.clone()),
+        workspace: context.workspace,
+        app_class: context.app_class,
     }
+}
+
+fn combined_learning_summary(
+    graph: &AttentionGraph,
+    learner: &AttentionLearner,
+    contextual: &ContextLearner,
+    now: Duration,
+) -> String {
+    let basic = learning_summary(graph, learner, now);
+    let context = attention_context(graph, None);
+    let contextual_workspace = contextual
+        .predict_workspaces(&context, now, 1)
+        .into_iter()
+        .next()
+        .map_or_else(
+            || "none".to_owned(),
+            |prediction| {
+                format!(
+                    "{}:{:.0}%@{}",
+                    prediction.target,
+                    prediction.probability * 100.0,
+                    prediction.event
+                )
+            },
+        );
+    format!("{basic} contextual_next={contextual_workspace}")
 }
 
 fn learning_summary(graph: &AttentionGraph, learner: &AttentionLearner, now: Duration) -> String {
@@ -221,57 +334,71 @@ fn wall_clock_duration() -> Duration {
         .unwrap_or(Duration::ZERO)
 }
 
-fn learning_state_path() -> Option<PathBuf> {
+fn state_path(filename: &str) -> Option<PathBuf> {
     if let Some(state_home) = env::var_os("XDG_STATE_HOME") {
-        return Some(PathBuf::from(state_home).join("memsol/learning.json"));
+        return Some(PathBuf::from(state_home).join("memsol").join(filename));
     }
 
     env::var_os("HOME")
         .map(PathBuf::from)
-        .map(|home| home.join(".local/state/memsol/learning.json"))
+        .map(|home| home.join(".local/state/memsol").join(filename))
 }
 
-fn load_learner(path: Option<&PathBuf>) -> AttentionLearner {
-    let Some(path) = path else {
-        eprintln!("learning state persistence disabled: HOME/XDG_STATE_HOME unavailable");
-        return AttentionLearner::default();
-    };
+fn runtime_event_socket_path() -> Option<PathBuf> {
+    env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .map(|runtime| runtime.join("memsol/events.sock"))
+}
 
+fn load_attention_learner(path: Option<&Path>) -> AttentionLearner {
+    load_state(path, AttentionLearner::load_json).unwrap_or_else(|error| {
+        eprintln!("ignoring attention learning state: {error}");
+        AttentionLearner::default()
+    })
+}
+
+fn load_context_learner(path: Option<&Path>) -> ContextLearner {
+    load_state(path, ContextLearner::load_json).unwrap_or_else(|error| {
+        eprintln!("ignoring contextual learning state: {error}");
+        ContextLearner::default()
+    })
+}
+
+fn load_state<T>(
+    path: Option<&Path>,
+    decode: impl FnOnce(File) -> io::Result<T>,
+) -> io::Result<T>
+where
+    T: Default,
+{
+    let Some(path) = path else {
+        return Ok(T::default());
+    };
     match File::open(path) {
-        Ok(file) => match AttentionLearner::load_json(file) {
-            Ok(model) => {
-                println!("loaded learning state from {}", path.display());
-                model
-            }
-            Err(error) => {
-                eprintln!(
-                    "ignoring invalid learning state {}: {error}",
-                    path.display()
-                );
-                AttentionLearner::default()
-            }
-        },
-        Err(error) if error.kind() == io::ErrorKind::NotFound => AttentionLearner::default(),
-        Err(error) => {
-            eprintln!("failed to read learning state {}: {error}", path.display());
-            AttentionLearner::default()
-        }
+        Ok(file) => decode(file),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(T::default()),
+        Err(error) => Err(error),
     }
 }
 
-fn save_learner(path: &PathBuf, learner: &AttentionLearner) -> io::Result<()> {
+fn save_attention_learner(path: &Path, learner: &AttentionLearner) -> io::Result<()> {
+    save_state(path, |file| learner.save_json(file))
+}
+
+fn save_context_learner(path: &Path, learner: &ContextLearner) -> io::Result<()> {
+    save_state(path, |file| learner.save_json(file))
+}
+
+fn save_state(path: &Path, encode: impl FnOnce(File) -> io::Result<()>) -> io::Result<()> {
     let Some(parent) = path.parent() else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "learning state path has no parent",
+            "state path has no parent",
         ));
     };
     fs::create_dir_all(parent)?;
 
-    let temporary = path.with_extension("json.tmp");
-    {
-        let file = File::create(&temporary)?;
-        learner.save_json(file)?;
-    }
+    let temporary = path.with_extension("tmp");
+    encode(File::create(&temporary)?)?;
     fs::rename(temporary, path)
 }
