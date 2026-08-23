@@ -1,0 +1,13 @@
+[package]
+name = "memsold"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+memsol-core = { path = "../memsol-core" }
+serde_json.workspace = true
+
+[lints]
+workspace = true
