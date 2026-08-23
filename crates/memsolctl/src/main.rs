@@ -30,10 +30,7 @@ fn status() -> std::io::Result<()> {
     );
     println!("  psi some avg10:  {:.2}%", psi.some.avg10);
     println!("  psi full avg10:  {:.2}%", psi.full.avg10);
-    println!(
-        "  swap used:       {:.1} MiB",
-        memory.swap_used_kib() as f64 / 1024.0
-    );
+    println!("  swap used:       {} MiB", memory.swap_used_kib() / 1024);
 
     Ok(())
 }
