@@ -41,6 +41,14 @@ fn main() -> std::io::Result<()> {
 }
 
 fn start_attention_observer() -> Arc<Mutex<AttentionGraph>> {
+    let mut stream = match HyprlandEventStream::connect() {
+        Ok(stream) => stream,
+        Err(error) => {
+            eprintln!("Hyprland attention observer unavailable: {error}");
+            return Arc::new(Mutex::new(AttentionGraph::default()));
+        }
+    };
+
     let graph = match snapshot_attention() {
         Ok(graph) => {
             println!(
@@ -51,7 +59,7 @@ fn start_attention_observer() -> Arc<Mutex<AttentionGraph>> {
             graph
         }
         Err(error) => {
-            eprintln!("Hyprland attention observer unavailable: {error}");
+            eprintln!("failed to snapshot Hyprland state: {error}");
             return Arc::new(Mutex::new(AttentionGraph::default()));
         }
     };
@@ -59,30 +67,20 @@ fn start_attention_observer() -> Arc<Mutex<AttentionGraph>> {
     let graph = Arc::new(Mutex::new(graph));
     let event_graph = Arc::clone(&graph);
 
-    thread::spawn(move || {
-        let mut stream = match HyprlandEventStream::connect() {
-            Ok(stream) => stream,
-            Err(error) => {
-                eprintln!("failed to connect Hyprland event socket: {error}");
+    thread::spawn(move || loop {
+        match stream.next_event() {
+            Ok(Some(event)) => {
+                if let Ok(mut graph) = event_graph.lock() {
+                    apply_event(&mut graph, event);
+                }
+            }
+            Ok(None) => {
+                eprintln!("Hyprland event socket closed");
                 return;
             }
-        };
-
-        loop {
-            match stream.next_event() {
-                Ok(Some(event)) => {
-                    if let Ok(mut graph) = event_graph.lock() {
-                        apply_event(&mut graph, event);
-                    }
-                }
-                Ok(None) => {
-                    eprintln!("Hyprland event socket closed");
-                    return;
-                }
-                Err(error) => {
-                    eprintln!("Hyprland event observer failed: {error}");
-                    return;
-                }
+            Err(error) => {
+                eprintln!("Hyprland event observer failed: {error}");
+                return;
             }
         }
     });
