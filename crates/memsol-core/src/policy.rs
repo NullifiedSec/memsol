@@ -43,11 +43,10 @@ mod tests {
         }
     }
 
-    fn memory(available_ratio: f64) -> MemorySnapshot {
-        let total_kib = 1_000_000;
+    const fn memory(available_kib: u64) -> MemorySnapshot {
         MemorySnapshot {
-            total_kib,
-            available_kib: (total_kib as f64 * available_ratio) as u64,
+            total_kib: 1_000_000,
+            available_kib,
             swap_total_kib: 0,
             swap_free_kib: 0,
         }
@@ -56,7 +55,7 @@ mod tests {
     #[test]
     fn normal_when_capacity_and_psi_are_healthy() {
         assert_eq!(
-            classify_pressure(memory(0.5), psi(0.0, 0.0)),
+            classify_pressure(memory(500_000), psi(0.0, 0.0)),
             PressureLevel::Normal
         );
     }
@@ -64,7 +63,7 @@ mod tests {
     #[test]
     fn critical_when_full_stalls_are_sustained() {
         assert_eq!(
-            classify_pressure(memory(0.2), psi(8.0, 5.0)),
+            classify_pressure(memory(200_000), psi(8.0, 5.0)),
             PressureLevel::Critical
         );
     }
