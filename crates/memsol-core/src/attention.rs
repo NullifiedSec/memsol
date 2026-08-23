@@ -55,7 +55,7 @@ impl AttentionGraph {
 
     #[must_use]
     pub fn focused_count(&self) -> usize {
-        if self.focused_window.is_some() { 1 } else { 0 }
+        usize::from(self.focused_window.is_some())
     }
 
     #[must_use]
@@ -74,13 +74,13 @@ impl AttentionGraph {
             .count()
     }
 
-    pub(crate) fn upsert_workspace(&mut self, id: i64, name: String, monitor: Option<String>) {
+    pub(crate) fn upsert_workspace(&mut self, id: i64, name: &str, monitor: Option<String>) {
         let entry = self
             .workspaces
-            .entry(name.clone())
+            .entry(name.to_owned())
             .or_insert_with(|| WorkspaceState {
                 id,
-                name: name.clone(),
+                name: name.to_owned(),
                 monitor: monitor.clone(),
                 active: false,
                 window_count: 0,
@@ -99,7 +99,7 @@ impl AttentionGraph {
         self.refresh();
     }
 
-    pub(crate) fn rename_workspace(&mut self, id: i64, new_name: String) {
+    pub(crate) fn rename_workspace(&mut self, id: i64, new_name: &str) {
         let old_name = self
             .workspaces
             .iter()
@@ -110,19 +110,19 @@ impl AttentionGraph {
         };
 
         if let Some(mut workspace) = self.workspaces.remove(&old_name) {
-            workspace.name.clone_from(&new_name);
-            self.workspaces.insert(new_name.clone(), workspace);
+            workspace.name = new_name.to_owned();
+            self.workspaces.insert(new_name.to_owned(), workspace);
         }
 
         for window in self.windows.values_mut() {
             if window.workspace == old_name {
-                window.workspace.clone_from(&new_name);
+                window.workspace = new_name.to_owned();
             }
         }
 
         for workspace in self.active_workspaces.values_mut() {
             if *workspace == old_name {
-                workspace.clone_from(&new_name);
+                *workspace = new_name.to_owned();
             }
         }
 
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn active_workspace_windows_are_visible() {
         let mut graph = AttentionGraph::default();
-        graph.upsert_workspace(1, "dev".to_owned(), Some("DP-1".to_owned()));
+        graph.upsert_workspace(1, "dev", Some("DP-1".to_owned()));
         graph.upsert_window(window("0x1", "dev"));
         graph.set_active_workspace("DP-1".to_owned(), "dev".to_owned());
 
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn focused_window_overrides_visibility() {
         let mut graph = AttentionGraph::default();
-        graph.upsert_workspace(1, "dev".to_owned(), Some("DP-1".to_owned()));
+        graph.upsert_workspace(1, "dev", Some("DP-1".to_owned()));
         graph.upsert_window(window("0x1", "dev"));
         graph.set_active_workspace("DP-1".to_owned(), "dev".to_owned());
         graph.set_focused_window(Some("0x1".to_owned()));
