@@ -2,12 +2,24 @@ use std::{collections::HashMap, fs, io, path::Path};
 
 use crate::model::{MemorySnapshot, PsiLine, PsiMemory};
 
+/// Read the kernel's memory pressure stall information from `/proc/pressure/memory`.
+///
+/// # Errors
+///
+/// Returns an I/O error when the PSI file cannot be read, or `InvalidData` when
+/// the kernel data does not contain the expected `some` and `full` records.
 pub fn read_memory_psi() -> io::Result<PsiMemory> {
     let raw = fs::read_to_string("/proc/pressure/memory")?;
     parse_memory_psi(&raw)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid memory PSI data"))
 }
 
+/// Read the memory capacity snapshot from `/proc/meminfo`.
+///
+/// # Errors
+///
+/// Returns an I/O error when `/proc/meminfo` cannot be read, or `InvalidData`
+/// when required memory fields are absent or malformed.
 pub fn read_meminfo() -> io::Result<MemorySnapshot> {
     let raw = fs::read_to_string(Path::new("/proc/meminfo"))?;
     parse_meminfo(&raw)
@@ -76,7 +88,7 @@ mod tests {
         )
         .expect("valid PSI");
 
-        assert_eq!(psi.some.avg10, 0.15);
+        assert!((psi.some.avg10 - 0.15).abs() < f64::EPSILON);
         assert_eq!(psi.full.total_us, 900);
     }
 
