@@ -2,24 +2,29 @@ use std::{
     env,
     fs::File,
     io,
+    os::unix::net::UnixDatagram,
     path::PathBuf,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use memsol_core::{
-    AttentionLearner, AttentionState, classify_pressure, snapshot_attention,
+    AttentionLearner, AttentionState, ContextEvent, classify_pressure, snapshot_attention,
     telemetry::{read_meminfo, read_memory_psi},
 };
 
 fn main() -> io::Result<()> {
-    let command = env::args().nth(1).unwrap_or_else(|| "status".to_owned());
+    let mut args = env::args().skip(1);
+    let command = args.next().unwrap_or_else(|| "status".to_owned());
 
     match command.as_str() {
         "status" => status(),
         "attention" | "hypr" => attention(),
         "learn" | "learning" => learning(),
+        "event" => send_event(args.collect()),
         other => {
-            eprintln!("unknown command: {other}\nusage: memsolctl [status|attention|learn]");
+            eprintln!(
+                "unknown command: {other}\nusage: memsolctl [status|attention|learn|event <kind> [source]]"
+            );
             std::process::exit(2);
         }
     }
@@ -91,7 +96,7 @@ fn attention() -> io::Result<()> {
 }
 
 fn learning() -> io::Result<()> {
-    let path = learning_state_path().ok_or_else(|| {
+    let path = state_path("learning.json").ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
             "HOME and XDG_STATE_HOME are unavailable",
@@ -158,12 +163,48 @@ fn learning() -> io::Result<()> {
     Ok(())
 }
 
-fn learning_state_path() -> Option<PathBuf> {
+fn send_event(args: Vec<String>) -> io::Result<()> {
+    let Some(kind) = args.first() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "usage: memsolctl event <kind> [source]",
+        ));
+    };
+    let source = args.get(1).cloned();
+    if args.len() > 2 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "usage: memsolctl event <kind> [source]",
+        ));
+    }
+
+    let path = runtime_event_socket_path().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is unavailable")
+    })?;
+    let event = ContextEvent {
+        kind: kind.clone(),
+        source,
+    };
+    let payload = serde_json::to_vec(&event)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let socket = UnixDatagram::unbound()?;
+    socket.send_to(&payload, &path)?;
+    println!("sent context event {} to {}", event.key(), path.display());
+    Ok(())
+}
+
+fn state_path(filename: &str) -> Option<PathBuf> {
     if let Some(state_home) = env::var_os("XDG_STATE_HOME") {
-        return Some(PathBuf::from(state_home).join("memsol/learning.json"));
+        return Some(PathBuf::from(state_home).join("memsol").join(filename));
     }
 
     env::var_os("HOME")
         .map(PathBuf::from)
-        .map(|home| home.join(".local/state/memsol/learning.json"))
+        .map(|home| home.join(".local/state/memsol").join(filename))
+}
+
+fn runtime_event_socket_path() -> Option<PathBuf> {
+    env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .map(|runtime| runtime.join("memsol/events.sock"))
 }
