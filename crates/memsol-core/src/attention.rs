@@ -110,19 +110,19 @@ impl AttentionGraph {
         };
 
         if let Some(mut workspace) = self.workspaces.remove(&old_name) {
-            workspace.name = new_name.to_owned();
+            new_name.clone_into(&mut workspace.name);
             self.workspaces.insert(new_name.to_owned(), workspace);
         }
 
         for window in self.windows.values_mut() {
             if window.workspace == old_name {
-                window.workspace = new_name.to_owned();
+                new_name.clone_into(&mut window.workspace);
             }
         }
 
         for workspace in self.active_workspaces.values_mut() {
             if *workspace == old_name {
-                *workspace = new_name.to_owned();
+                new_name.clone_into(workspace);
             }
         }
 
